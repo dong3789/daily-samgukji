@@ -513,7 +513,7 @@ function showResumeCard() {
     card.style.display = 'none';
     return;
   }
-  text.textContent = `${lastReadChapter}회부터 다시 읽을 수 있어`;
+  text.textContent = `마지막으로 ${lastReadChapter}회까지 읽었어`;
   card.style.display = 'block';
 }
 
@@ -557,13 +557,15 @@ async function loadChapter(num) {
   document.getElementById('nextBtn').disabled = num >= TOTAL_CHAPTERS;
   document.getElementById('prevBtn2').disabled = num <= 1;
   document.getElementById('nextBtn2').disabled = num >= TOTAL_CHAPTERS;
-  document.getElementById('progress').textContent = `${num} / ${TOTAL_CHAPTERS}회`;
+  const latestPublishedNum = publishedChapters.length ? publishedChapters[publishedChapters.length - 1].num : 0;
+  document.getElementById('progress').textContent = `현재 ${num}회 · 발행 ${latestPublishedNum}/${TOTAL_CHAPTERS}회`;
   showResumeCard();
 }
 
 function renderChapter(data) {
   const reader = document.getElementById('reader');
-  let html = `<h1>${data.title}</h1>`;
+  const koreanTitle = data.korean_title || data.title;
+  let html = `<h1>${koreanTitle}</h1>`;
   if (data.original_title) {
     html += `<div class="subtitle">${data.original_title}</div>`;
   }
@@ -697,10 +699,25 @@ async function buildChapterList() {
     const resp = await fetch('index.json');
     const chapters = await resp.json();
     publishedChapters = chapters;
+    const latestPublishedNum = chapters.length ? chapters[chapters.length - 1].num : 0;
+
+    html += `<div style="padding:8px 8px 14px; font-size:12px; opacity:0.6;">`;
+    html += `발행됨 ${latestPublishedNum}회 / 전체 ${TOTAL_CHAPTERS}회`;
+    if (lastReadChapter) {
+      html += ` · 마지막 읽음 ${lastReadChapter}회`;
+    }
+    html += `</div>`;
+
     chapters.forEach(ch => {
       const cls = ch.num === currentChapter ? 'current' : '';
-      const readMark = lastReadChapter && ch.num <= lastReadChapter ? ' ✓' : '';
-      html += `<a href="#${ch.num}" class="${cls}" onclick="loadChapter(${ch.num});toggleChapterList()">제${ch.num}회 ${ch.title}${readMark}</a>`;
+      const isRead = lastReadChapter && ch.num <= lastReadChapter;
+      const title = ch.korean_title || `제${ch.num}회`;
+      const statusText = isRead ? '읽음' : (ch.num === lastReadChapter + 1 ? '다음' : '안읽음');
+      const statusColor = isRead ? '#2e7d32' : (ch.num === lastReadChapter + 1 ? '#c77800' : '#999');
+      html += `<a href="#${ch.num}" class="${cls}" onclick="loadChapter(${ch.num});toggleChapterList()" style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <span style="min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${title}</span>
+        <span style="font-size:11px; color:${statusColor}; white-space:nowrap;">${statusText}</span>
+      </a>`;
     });
   } catch(e) {
     html = '<p style="padding:20px;opacity:0.5">목록을 불러올 수 없습니다.</p>';
@@ -711,7 +728,11 @@ async function buildChapterList() {
 async function preloadChapterIndex() {
   try {
     const resp = await fetch('index.json');
-    publishedChapters = await resp.json();
+    const chapters = await resp.json();
+    publishedChapters = chapters.map(ch => ({
+      ...ch,
+      korean_title: ch.korean_title || `제${ch.num}회`
+    }));
   } catch(e) {
     publishedChapters = [];
   }
