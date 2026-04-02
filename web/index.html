@@ -400,12 +400,21 @@
 
   <div class="spacer"></div>
 
+  <button class="chapter-list-btn" onclick="goLatestChapter()">최신</button>
   <button class="chapter-list-btn" onclick="toggleChapterList()">목록</button>
   <button class="nav-btn" id="prevBtn" onclick="goChapter(-1)">← 이전</button>
   <button class="nav-btn" id="nextBtn" onclick="goChapter(1)">다음 →</button>
 </div>
 
 <div class="reader" id="reader">
+  <div id="resumeCard" style="display:none; margin-bottom:20px; padding:14px 16px; background:var(--ui-bg); border:1px solid var(--ui-border); border-radius:10px;">
+    <div style="font-size:14px; font-weight:600; margin-bottom:8px;">지난번 읽던 곳이 있어</div>
+    <div id="resumeText" style="font-size:13px; opacity:0.7; margin-bottom:10px;"></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="nav-btn" onclick="resumeLastRead()">이어 읽기</button>
+      <button class="nav-btn" onclick="dismissResumeCard()">닫기</button>
+    </div>
+  </div>
   <div class="loading">불러오는 중...</div>
 </div>
 
@@ -455,6 +464,8 @@ const TOTAL_CHAPTERS = 120;
 let currentChapter = 1;
 let fontSize = 18;
 let theme = 'light';
+let lastReadChapter = null;
+let publishedChapters = [];
 
 // 설정 로드
 function loadSettings() {
@@ -462,11 +473,12 @@ function loadSettings() {
     const s = JSON.parse(localStorage.getItem('samgukji-settings') || '{}');
     if (s.fontSize) fontSize = s.fontSize;
     if (s.theme) theme = s.theme;
+    if (s.lastReadChapter) lastReadChapter = s.lastReadChapter;
   } catch(e) {}
 }
 
 function saveSettings() {
-  localStorage.setItem('samgukji-settings', JSON.stringify({ fontSize, theme }));
+  localStorage.setItem('samgukji-settings', JSON.stringify({ fontSize, theme, lastReadChapter }));
 }
 
 function setTheme(t) {
@@ -489,10 +501,44 @@ function getChapterFromHash() {
   return (num >= 1 && num <= TOTAL_CHAPTERS) ? num : 1;
 }
 
+function saveLastReadChapter(num) {
+  lastReadChapter = num;
+  saveSettings();
+}
+
+function showResumeCard() {
+  const card = document.getElementById('resumeCard');
+  const text = document.getElementById('resumeText');
+  if (!lastReadChapter || lastReadChapter <= 1 || lastReadChapter === currentChapter) {
+    card.style.display = 'none';
+    return;
+  }
+  text.textContent = `${lastReadChapter}회부터 다시 읽을 수 있어`;
+  card.style.display = 'block';
+}
+
+function dismissResumeCard() {
+  document.getElementById('resumeCard').style.display = 'none';
+}
+
+function resumeLastRead() {
+  if (lastReadChapter) {
+    loadChapter(lastReadChapter);
+  }
+}
+
+function goLatestChapter() {
+  const latest = publishedChapters.length ? publishedChapters[publishedChapters.length - 1].num : currentChapter;
+  loadChapter(latest);
+}
+
 async function loadChapter(num) {
   currentChapter = num;
   location.hash = '#' + num;
-  document.getElementById('reader').innerHTML = '<div class="loading">불러오는 중...</div>';
+  const resumeCard = document.getElementById('resumeCard');
+  document.getElementById('reader').innerHTML = '';
+  if (resumeCard) document.getElementById('reader').appendChild(resumeCard);
+  document.getElementById('reader').insertAdjacentHTML('beforeend', '<div class="loading">불러오는 중...</div>');
   window.scrollTo(0, 0);
 
   try {
@@ -500,6 +546,7 @@ async function loadChapter(num) {
     if (!resp.ok) throw new Error('Chapter not found');
     const data = await resp.json();
     renderChapter(data);
+    saveLastReadChapter(num);
   } catch(e) {
     document.getElementById('reader').innerHTML =
       `<div class="loading">아직 번역되지 않은 회입니다. (${num}회)</div>`;
@@ -511,6 +558,7 @@ async function loadChapter(num) {
   document.getElementById('prevBtn2').disabled = num <= 1;
   document.getElementById('nextBtn2').disabled = num >= TOTAL_CHAPTERS;
   document.getElementById('progress').textContent = `${num} / ${TOTAL_CHAPTERS}회`;
+  showResumeCard();
 }
 
 function renderChapter(data) {
@@ -648,14 +696,25 @@ async function buildChapterList() {
   try {
     const resp = await fetch('index.json');
     const chapters = await resp.json();
+    publishedChapters = chapters;
     chapters.forEach(ch => {
       const cls = ch.num === currentChapter ? 'current' : '';
-      html += `<a href="#${ch.num}" class="${cls}" onclick="loadChapter(${ch.num});toggleChapterList()">제${ch.num}회 ${ch.title}</a>`;
+      const readMark = lastReadChapter && ch.num <= lastReadChapter ? ' ✓' : '';
+      html += `<a href="#${ch.num}" class="${cls}" onclick="loadChapter(${ch.num});toggleChapterList()">제${ch.num}회 ${ch.title}${readMark}</a>`;
     });
   } catch(e) {
     html = '<p style="padding:20px;opacity:0.5">목록을 불러올 수 없습니다.</p>';
   }
   panel.innerHTML = html;
+}
+
+async function preloadChapterIndex() {
+  try {
+    const resp = await fetch('index.json');
+    publishedChapters = await resp.json();
+  } catch(e) {
+    publishedChapters = [];
+  }
 }
 
 // 키보드 네비게이션
@@ -668,6 +727,7 @@ document.addEventListener('keydown', (e) => {
 loadSettings();
 setTheme(theme);
 changeFontSize(0);
+preloadChapterIndex();
 currentChapter = getChapterFromHash();
 loadChapter(currentChapter);
 
